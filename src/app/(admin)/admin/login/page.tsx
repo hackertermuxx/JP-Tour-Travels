@@ -36,8 +36,8 @@ export default function AdminLoginPage() {
 
       toast.success("Logged in successfully");
       router.push("/admin/dashboard");
-    } catch {
-      toast.error("Failed to connect. Check Supabase configuration.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to connect. Check Supabase configuration.");
     } finally {
       setLoading(false);
     }
