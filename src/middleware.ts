@@ -1,52 +1,59 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const { pathname } = request.nextUrl;
 
-  if (!supabaseUrl || !supabaseKey) {
+  const isAdminRoute = pathname.startsWith("/admin");
+  const isLoginRoute = pathname === "/admin/login";
+
+  if (!isAdminRoute) {
     return NextResponse.next();
   }
 
-  let supabaseResponse = NextResponse.next({ request });
+  try {
+    const { createServerClient } = await import("@supabase/ssr");
 
-  const supabase = createServerClient(supabaseUrl, supabaseKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      if (isLoginRoute) return NextResponse.next();
+      return NextResponse.redirect(new URL("/admin/login", request.url));
+    }
+
+    let supabaseResponse = NextResponse.next({ request });
+
+    const supabase = createServerClient(supabaseUrl, supabaseKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+          supabaseResponse = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          );
+        },
       },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) =>
-          request.cookies.set(name, value)
-        );
-        supabaseResponse = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options)
-        );
-      },
-    },
-  });
+    });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
+    if (isLoginRoute) {
+      if (user) return NextResponse.redirect(new URL("/admin/dashboard", request.url));
+      return NextResponse.next();
+    }
 
-  if (pathname.startsWith("/admin") && pathname !== "/admin/login" && !user) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/admin/login";
-    return NextResponse.redirect(url);
+    if (!user) {
+      return NextResponse.redirect(new URL("/admin/login", request.url));
+    }
+
+    return supabaseResponse;
+  } catch {
+    if (isLoginRoute) return NextResponse.next();
+    return NextResponse.redirect(new URL("/admin/login", request.url));
   }
-
-  if (pathname === "/admin/login" && user) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/admin/dashboard";
-    return NextResponse.redirect(url);
-  }
-
-  return supabaseResponse;
 }
 
 export const config = {
